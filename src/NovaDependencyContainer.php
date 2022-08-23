@@ -114,6 +114,22 @@ class NovaDependencyContainer extends Field
     }
 
     /**
+     * Adds a dependency for array
+     *
+     * @param $field
+     * @param array $value
+     * @return NovaDependencyContainer
+     */
+    public function dependsOnArray($field, array $value)
+    {
+        return $this->withMeta([
+            'dependencies' => array_merge($this->meta['dependencies'], [
+                array_merge($this->getFieldLayout($field, $value), ['array' => true])
+            ])
+        ]);
+    }
+
+    /**
      * Get layout for a specified field. Dot notation will result in {field}.{property}. If no dot was found it will
      * result in {field}.{field}, as it was in previous versions by default.
      *
@@ -123,9 +139,13 @@ class NovaDependencyContainer extends Field
      */
     protected function getFieldLayout($field, $value = null)
     {
-        if (count( ($field = explode('.', $field)) ) === 1) {
+        if (count(($field = explode('.', $field))) === 1) {
             // backwards compatibility, property becomes field
             $field[1] = $field[0];
+        }
+        if (is_array($value)) {
+            foreach ($value as $val) {
+            }
         }
         return [
             // literal form input name
@@ -153,44 +173,49 @@ class NovaDependencyContainer extends Field
 
             $this->meta['dependencies'][$index]['satisfied'] = false;
 
-            if (array_key_exists('empty', $dependency) && empty($resource->{$dependency['property']})) {
+            $propertyValue = $resource->{$dependency['field']}->{$dependency['property']} ?? $resource->{$dependency['property']};
+
+            if (array_key_exists('array', $dependency) && !empty($dependency['value'])) {
+                foreach ($dependency['value'] as $value) {
+                    if ($value == $propertyValue) {
+                        $this->meta['dependencies'][$index]['satisfied'] = true;
+                        continue;
+                    }
+                }
+            }
+
+            if (array_key_exists('empty', $dependency) && empty($propertyValue)) {
                 $this->meta['dependencies'][$index]['satisfied'] = true;
                 continue;
             }
             // inverted `empty()`
-            if (array_key_exists('notEmpty', $dependency) && !empty($resource->{$dependency['property']})) {
+            if (array_key_exists('notEmpty', $dependency) && !empty($propertyValue)) {
                 $this->meta['dependencies'][$index]['satisfied'] = true;
                 continue;
             }
             // inverted
-            if (array_key_exists('nullOrZero', $dependency) && in_array($resource->{$dependency['property']}, [null, 0, '0'], true)) {
+            if (array_key_exists('nullOrZero', $dependency) && in_array($propertyValue, [null, 0, '0'], true)) {
                 $this->meta['dependencies'][$index]['satisfied'] = true;
                 continue;
             }
 
-            if (array_key_exists('not', $dependency) && $resource->{$dependency['property']} != $dependency['not']) {
+            if (array_key_exists('not', $dependency) && ($propertyValue != $dependency['not'])) {
                 $this->meta['dependencies'][$index]['satisfied'] = true;
                 continue;
             }
 
             if (array_key_exists('value', $dependency)) {
-                if (is_array($resource)) {
-                    if (isset($resource[$dependency['property']]) && $dependency['value'] == $resource[$dependency['property']]) {
-                        $this->meta['dependencies'][$index]['satisfied'] = true;
-                    }
-                    continue;
-                } elseif ($dependency['value'] == $resource->{$dependency['property']}) {
+                if ($dependency['value'] == $propertyValue) {
                     $this->meta['dependencies'][$index]['satisfied'] = true;
                     continue;
                 }
                 // @todo: quickfix for MorphTo
-                $morphable_attribute = $resource->getAttribute($dependency['property'].'_type');
-                if ($morphable_attribute !== null && Str::endsWith($morphable_attribute, '\\'.$dependency['value'])) {
+                $morphable_attribute = $resource->getAttribute($dependency['property'] . '_type');
+                if ($morphable_attribute !== null && Str::endsWith($morphable_attribute, '\\' . $dependency['value'])) {
                     $this->meta['dependencies'][$index]['satisfied'] = true;
                     continue;
                 }
             }
-
         }
     }
 
@@ -220,7 +245,7 @@ class NovaDependencyContainer extends Field
      */
     public function fillInto(NovaRequest $request, $model, $attribute, $requestAttribute = null)
     {
-        foreach($this->meta['fields'] as $field) {
+        foreach ($this->meta['fields'] as $field) {
             $field->fill($request, $model);
         }
     }
@@ -233,13 +258,23 @@ class NovaDependencyContainer extends Field
      */
     public function areDependenciesSatisfied(NovaRequest $request)
     {
-        if (!isset($this->meta['dependencies'])
-            || !is_array($this->meta['dependencies'])) {
+        if (
+            !isset($this->meta['dependencies'])
+            || !is_array($this->meta['dependencies'])
+        ) {
             return false;
         }
 
         $satisfiedCounts = 0;
         foreach ($this->meta['dependencies'] as $index => $dependency) {
+
+            if (array_key_exists('array', $dependency) && !empty($dependency['value'])) {
+                foreach ($dependency['value'] as $value) {
+                    if ($value == $request->get($dependency['property'])) {
+                        $satisfiedCounts++;
+                    }
+                }
+            }
 
             if (array_key_exists('empty', $dependency) && empty($request->has($dependency['property']))) {
                 $satisfiedCounts++;
@@ -276,9 +311,11 @@ class NovaDependencyContainer extends Field
     protected function getSituationalRulesSet(NovaRequest $request, string $propertyName = 'rules')
     {
         $fieldsRules = [$this->attribute => []];
-        if (!$this->areDependenciesSatisfied($request)
+        if (
+            !$this->areDependenciesSatisfied($request)
             || !isset($this->meta['fields'])
-            || !is_array($this->meta['fields'])) {
+            || !is_array($this->meta['fields'])
+        ) {
             return $fieldsRules;
         }
 
