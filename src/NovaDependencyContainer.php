@@ -2,7 +2,6 @@
 
 namespace Epartment\NovaDependencyContainer;
 
-use Illuminate\Database\Eloquent\Model;
 use Laravel\Nova\Fields\Field;
 use Laravel\Nova\Http\Requests\NovaRequest;
 use Illuminate\Support\Str;
@@ -122,11 +121,15 @@ class NovaDependencyContainer extends Field
      */
     public function dependsOnArray($field, array $value)
     {
-        return $this->withMeta([
-            'dependencies' => array_merge($this->meta['dependencies'], [
-                array_merge($this->getFieldLayout($field, $value), ['array' => true])
-            ])
-        ]);
+        foreach ($value as $val) {
+            $this->withMeta([
+                'dependencies' => array_merge($this->meta['dependencies'], [
+                    array_merge($this->getFieldLayout($field, $val), ['array' => true])
+                ])
+            ]);
+        }
+
+        return $this;
     }
 
     /**
@@ -147,6 +150,7 @@ class NovaDependencyContainer extends Field
             foreach ($value as $val) {
             }
         }
+
         return [
             // literal form input name
             'field' => $field[0],
@@ -266,13 +270,17 @@ class NovaDependencyContainer extends Field
         }
 
         $satisfiedCounts = 0;
+
+        $arraySatisfied = false;
+
         foreach ($this->meta['dependencies'] as $index => $dependency) {
 
             if (array_key_exists('array', $dependency) && !empty($dependency['value'])) {
-                foreach ($dependency['value'] as $value) {
-                    if ($value == $request->get($dependency['property'])) {
-                        $satisfiedCounts++;
-                    }
+                if ($arraySatisfied) {
+                    $satisfiedCounts++;
+                } elseif ($dependency['value'] == $request->get($dependency['property'])) {
+                    $satisfiedCounts++;
+                    $arraySatisfied = true;
                 }
             }
 
